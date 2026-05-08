@@ -68,7 +68,10 @@ class AppSession {
     );
     await AppLogger.info('setup tx built bytes=${tx.length}');
 
-    final signature = await wallet.signAndSendTransaction(tx);
+    final signature = await wallet.signAndSendTransactionWithFallback(
+      transaction: tx,
+      rpc: program.rpc,
+    );
     if (signature == null) {
       throw StateError('Wallet did not return a setup signature.');
     }

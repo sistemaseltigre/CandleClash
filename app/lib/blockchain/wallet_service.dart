@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:solana/base58.dart';
+import 'package:solana/solana.dart';
 import 'package:solana_mobile_client/solana_mobile_client.dart';
 
 import '../config/rpc_config.dart';
@@ -87,9 +89,14 @@ class WalletService {
     if (_connection == null) return const [];
     final result = await _withReauthorizedClient((client) async {
       await AppLogger.info('wallet signAndSend txCount=${transactions.length}');
+      final capabilities = await client.getCapabilities();
+      await AppLogger.info('wallet capabilities=$capabilities');
       final signed = await client
           .signAndSendTransactions(transactions: transactions)
           .timeout(_authorizeTimeout);
+      await AppLogger.info(
+        'wallet signAndSend returned signatures=${signed.signatures.length}',
+      );
       return signed.signatures;
     });
     return result ?? const [];
@@ -99,6 +106,44 @@ class WalletService {
     final signatures = await signAndSendTransactions([transaction]);
     if (signatures.isEmpty) return null;
     return base58encode(signatures.first);
+  }
+
+  Future<String?> signAndSendTransactionWithFallback({
+    required Uint8List transaction,
+    required RpcClient rpc,
+  }) async {
+    final directSignature = await signAndSendTransaction(transaction);
+    if (directSignature != null) return directSignature;
+
+    await AppLogger.info(
+      'wallet signAndSend empty; trying signTransactions fallback',
+    );
+    final signedTx = await signTransaction(transaction);
+    if (signedTx == null) return null;
+    final signature = await rpc.sendTransaction(
+      base64Encode(signedTx),
+      preflightCommitment: Commitment.confirmed,
+      maxRetries: 3,
+    );
+    await AppLogger.info('rpc send signed wallet tx signature=$signature');
+    return signature;
+  }
+
+  Future<Uint8List?> signTransaction(Uint8List transaction) async {
+    if (_connection == null) return null;
+    return _withReauthorizedClient((client) async {
+      await AppLogger.info(
+        'wallet signTransactions bytes=${transaction.length}',
+      );
+      final signed = await client
+          .signTransactions(transactions: [transaction])
+          .timeout(_authorizeTimeout);
+      await AppLogger.info(
+        'wallet signTransactions returned payloads=${signed.signedPayloads.length}',
+      );
+      if (signed.signedPayloads.isEmpty) return null;
+      return signed.signedPayloads.first;
+    });
   }
 
   Future<void> disconnect() async {
@@ -158,14 +203,29 @@ class WalletService {
       final client = await clientFuture;
       await Future<void>.delayed(_associationSettleDelay);
 
-      final result = await client
+      var result = await client
           .reauthorize(
             identityName: _identityName,
             identityUri: _identityUri,
             authToken: connection.authToken,
           )
           .timeout(_authorizeTimeout);
-      if (result == null) return null;
+      if (result == null) {
+        await AppLogger.info(
+          'wallet reauthorize returned null; trying authorize',
+        );
+        result = await client
+            .authorize(
+              identityName: _identityName,
+              identityUri: _identityUri,
+              cluster: RpcConfig.cluster,
+            )
+            .timeout(_authorizeTimeout);
+      }
+      if (result == null) {
+        await AppLogger.error('wallet authorize/reauthorize returned null');
+        return null;
+      }
 
       _connection = WalletConnection(
         address: base58encode(result.publicKey),
