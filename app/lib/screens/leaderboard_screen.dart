@@ -54,13 +54,30 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('LEADERBOARD', style: TextStyle(color: clashGreen, fontWeight: FontWeight.w900, letterSpacing: 1.4)),
+                  const Text(
+                    'LEADERBOARD',
+                    style: TextStyle(
+                      color: clashGreen,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.4,
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   Row(
                     children: [
-                      NeonStat(icon: Icons.calendar_today, label: 'UTC Day', value: '${program.currentUtcDayId()}', color: clashGreen),
+                      NeonStat(
+                        icon: Icons.calendar_today,
+                        label: 'UTC Day',
+                        value: '${program.currentUtcDayId()}',
+                        color: clashGreen,
+                      ),
                       const SizedBox(width: 10),
-                      NeonStat(icon: Icons.emoji_events, label: 'Pool', value: _sol(currentPool?.totalPoolLamports ?? 0), color: clashYellow),
+                      NeonStat(
+                        icon: Icons.emoji_events,
+                        label: 'Pool',
+                        value: _sol(currentPool?.totalPoolLamports ?? 0),
+                        color: clashYellow,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -79,7 +96,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  String _sol(int lamports) => (lamports / AppConstants.lamportsPerSol).toStringAsFixed(3);
+  String _sol(int lamports) =>
+      (lamports / AppConstants.lamportsPerSol).toStringAsFixed(3);
 }
 
 class _EmptyBoard extends StatelessWidget {
@@ -115,19 +133,34 @@ class _LeaderboardRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: rank <= 3 ? clashGreen.withValues(alpha: 0.12) : const Color(0xff09111a),
+        color: rank <= 3
+            ? clashGreen.withValues(alpha: 0.12)
+            : const Color(0xff09111a),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: rank <= 3 ? clashGreen.withValues(alpha: 0.45) : clashBorder),
+        border: Border.all(
+          color: rank <= 3 ? clashGreen.withValues(alpha: 0.45) : clashBorder,
+        ),
       ),
       child: Row(
         children: [
-          SizedBox(width: 32, child: Text('#$rank', style: const TextStyle(color: clashYellow))),
+          SizedBox(
+            width: 32,
+            child: Text('#$rank', style: const TextStyle(color: clashYellow)),
+          ),
           Expanded(child: Text(_short(player.player))),
-          Text('${player.dailyScore}', style: const TextStyle(color: clashGreen, fontWeight: FontWeight.w800)),
+          Text(
+            '${player.dailyScore}',
+            style: const TextStyle(
+              color: clashGreen,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  String _short(String value) => value.length < 8 ? value : '${value.substring(0, 4)}...${value.substring(value.length - 4)}';
+  String _short(String value) => value.length < 8
+      ? value
+      : '${value.substring(0, 4)}...${value.substring(value.length - 4)}';
 }

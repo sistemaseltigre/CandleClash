@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../blockchain/candle_clash_program.dart';
-import '../blockchain/solana_service.dart';
 import '../blockchain/wallet_service.dart';
 import '../config/constants.dart';
 import '../models/player_profile.dart';
 import '../models/player_vault.dart';
+import '../services/app_logger.dart';
+import '../services/app_session.dart';
 import 'widgets/clash_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,9 +16,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final wallet = WalletService();
-  final solana = SolanaService();
-  final program = CandleClashProgram();
+  final session = AppSession.instance;
 
   String? address;
   double walletSol = 0;
@@ -33,22 +31,20 @@ class _HomeScreenState extends State<HomeScreen> {
       status = 'Opening wallet...';
     });
     try {
-      final connection = await wallet.connect();
+      final connection = await session.connect();
       if (connection == null) {
         setState(() => status = 'Wallet connection cancelled or unavailable.');
         return;
       }
-      final balance = await solana.getSolBalance(connection.address);
-      final fetchedVault = await program.fetchVault(connection.address);
-      final fetchedProfile = await program.fetchProfile(connection.address);
       setState(() {
         address = connection.address;
-        walletSol = balance;
-        vault = fetchedVault;
-        profile = fetchedProfile;
+        walletSol = session.walletSol;
+        vault = session.vault;
+        profile = session.profile;
         status = 'Connected as ${WalletUtils.shortAddress(connection.address)}';
       });
     } catch (error) {
+      await AppLogger.error('home connect failed', error);
       setState(() => status = '$error');
     } finally {
       if (mounted) setState(() => busy = false);
@@ -67,7 +63,11 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 const ClashLogo(height: 78),
                 const Spacer(),
-                _BalancePill(sol: vault.balanceLamports == 0 ? walletSol : vault.balanceLamports / AppConstants.lamportsPerSol),
+                _BalancePill(
+                  sol: vault.balanceLamports == 0
+                      ? walletSol
+                      : vault.balanceLamports / AppConstants.lamportsPerSol,
+                ),
               ],
             ),
             const SizedBox(height: 18),
@@ -77,27 +77,61 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     children: [
                       Text(
-                        connected ? WalletUtils.shortAddress(address!) : 'NO WALLET',
-                        style: const TextStyle(color: clashGreen, fontWeight: FontWeight.w800, letterSpacing: 1),
+                        connected
+                            ? WalletUtils.shortAddress(address!)
+                            : 'NO WALLET',
+                        style: const TextStyle(
+                          color: clashGreen,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1,
+                        ),
                       ),
                       const Spacer(),
-                      Text('ROUND #${program.currentUtcDayId()}', style: const TextStyle(color: Colors.white54)),
+                      Text(
+                        'ROUND #${session.program.currentUtcDayId()}',
+                        style: const TextStyle(color: Colors.white54),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 20),
                   const Text(
                     'WILL THE NEXT CANDLE',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, letterSpacing: 1.5),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('RISE', style: TextStyle(color: clashGreen, fontSize: 38, fontWeight: FontWeight.w900)),
+                      Text(
+                        'RISE',
+                        style: TextStyle(
+                          color: clashGreen,
+                          fontSize: 38,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                       SizedBox(width: 10),
-                      Text('OR', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
+                      Text(
+                        'OR',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                       SizedBox(width: 10),
-                      Text('FALL?', style: TextStyle(color: clashRed, fontSize: 38, fontWeight: FontWeight.w900)),
+                      Text(
+                        'FALL?',
+                        style: TextStyle(
+                          color: clashRed,
+                          fontSize: 38,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 18),
@@ -115,20 +149,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   FilledButton.icon(
                     onPressed: busy ? null : connect,
                     icon: const Icon(Icons.account_balance_wallet),
-                    label: Text(connected ? 'REFRESH WALLET' : 'CONNECT WALLET'),
+                    label: Text(
+                      connected ? 'REFRESH WALLET' : 'CONNECT WALLET',
+                    ),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(54),
                       backgroundColor: clashGreen,
                       foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
                   FilledButton.tonalIcon(
-                    onPressed: connected ? () => Navigator.pushNamed(context, '/game') : null,
+                    onPressed: connected
+                        ? () => Navigator.pushNamed(context, '/game')
+                        : null,
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('PLAY'),
-                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
                   ),
                 ],
               ),
@@ -136,11 +178,26 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 14),
             Row(
               children: [
-                NeonStat(icon: Icons.emoji_events, label: 'Points', value: '${profile.exp}', color: clashYellow),
+                NeonStat(
+                  icon: Icons.emoji_events,
+                  label: 'Points',
+                  value: '${profile.exp}',
+                  color: clashYellow,
+                ),
                 const SizedBox(width: 10),
-                NeonStat(icon: Icons.local_fire_department, label: 'Streak', value: '${profile.currentStreak}', color: clashRed),
+                NeonStat(
+                  icon: Icons.local_fire_department,
+                  label: 'Streak',
+                  value: '${profile.currentStreak}',
+                  color: clashRed,
+                ),
                 const SizedBox(width: 10),
-                NeonStat(icon: Icons.trending_up, label: 'Level', value: '${profile.level}', color: clashGreen),
+                NeonStat(
+                  icon: Icons.trending_up,
+                  label: 'Level',
+                  value: '${profile.level}',
+                  color: clashGreen,
+                ),
               ],
             ),
             const SizedBox(height: 14),
@@ -148,16 +205,31 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('WALLET', style: TextStyle(color: Colors.white70, letterSpacing: 1.2)),
+                  const Text(
+                    'WALLET',
+                    style: TextStyle(color: Colors.white70, letterSpacing: 1.2),
+                  ),
                   const SizedBox(height: 10),
                   Text('SOL balance: ${walletSol.toStringAsFixed(4)}'),
                   Text('Internal balance: ${_sol(vault.balanceLamports)} SOL'),
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Expanded(child: FilledButton(onPressed: connected ? () => _comingSoon('Deposit') : null, child: const Text('DEPOSIT'))),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: connected && !busy ? setupGame : null,
+                          child: const Text('DEPOSIT + SESSION'),
+                        ),
+                      ),
                       const SizedBox(width: 10),
-                      Expanded(child: OutlinedButton(onPressed: connected ? () => _comingSoon('Withdraw') : null, child: const Text('WITHDRAW'))),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: connected
+                              ? () => _comingSoon('Withdraw')
+                              : null,
+                          child: const Text('WITHDRAW'),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -173,10 +245,35 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _comingSoon(String action) {
-    setState(() => status = '$action will use the generated Anchor IDL transaction builder.');
+    setState(
+      () => status =
+          '$action will use the generated Anchor IDL transaction builder.',
+    );
   }
 
-  String _sol(int lamports) => (lamports / AppConstants.lamportsPerSol).toStringAsFixed(4);
+  Future<void> setupGame() async {
+    setState(() {
+      busy = true;
+      status = 'Opening wallet to deposit and start session...';
+    });
+    try {
+      await session.ensureReadyForGame();
+      setState(() {
+        walletSol = session.walletSol;
+        vault = session.vault;
+        profile = session.profile;
+        status = 'Game balance ready: ${_sol(vault.balanceLamports)} SOL';
+      });
+    } catch (error, stack) {
+      await AppLogger.error('setupGame failed', error, stack);
+      setState(() => status = '$error');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  String _sol(int lamports) =>
+      (lamports / AppConstants.lamportsPerSol).toStringAsFixed(4);
 }
 
 class _BalancePill extends StatelessWidget {
@@ -197,7 +294,10 @@ class _BalancePill extends StatelessWidget {
         children: [
           const Icon(Icons.token, color: clashPurple, size: 20),
           const SizedBox(width: 8),
-          Text('${sol.toStringAsFixed(2)} SOL', style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text(
+            '${sol.toStringAsFixed(2)} SOL',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
         ],
       ),
     );

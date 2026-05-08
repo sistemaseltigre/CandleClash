@@ -3,7 +3,8 @@ import 'package:solana/solana.dart';
 import '../config/rpc_config.dart';
 
 class SolanaService {
-  SolanaService({RpcClient? rpc}) : rpc = rpc ?? RpcClient(RpcConfig.devnetRpcUrl);
+  SolanaService({RpcClient? rpc})
+    : rpc = rpc ?? RpcClient(RpcConfig.devnetRpcUrl);
 
   final RpcClient rpc;
 

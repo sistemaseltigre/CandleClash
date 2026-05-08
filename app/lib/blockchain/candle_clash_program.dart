@@ -1,20 +1,29 @@
 import 'dart:typed_data';
 
+import 'package:solana/anchor.dart';
+import 'package:solana/dto.dart' hide Instruction;
+import 'package:solana/encoder.dart';
 import 'package:solana/solana.dart';
 
 import '../config/constants.dart';
+import '../config/rpc_config.dart';
 import '../models/daily_player.dart';
 import '../models/daily_pool.dart';
 import '../models/game_round.dart';
 import '../models/player_profile.dart';
 import '../models/player_vault.dart';
+import '../services/app_logger.dart';
 
 class CandleClashProgram {
-  CandleClashProgram();
+  CandleClashProgram({RpcClient? rpc})
+    : rpc = rpc ?? RpcClient(RpcConfig.devnetRpcUrl);
+
+  final RpcClient rpc;
 
   final Ed25519HDPublicKey programId = Ed25519HDPublicKey.fromBase58(
     AppConstants.candleClashProgramId,
   );
+  final Ed25519HDPublicKey systemProgramId = SystemProgram.id;
 
   Future<Ed25519HDPublicKey> playerProfilePda(String playerAddress) {
     return Ed25519HDPublicKey.findProgramAddress(
@@ -36,16 +45,118 @@ class CandleClashProgram {
     );
   }
 
-  int currentUtcDayId() => DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000 ~/ 86400;
+  Future<Ed25519HDPublicKey> globalConfigPda() {
+    return Ed25519HDPublicKey.findProgramAddress(
+      seeds: ['global_config'.codeUnits],
+      programId: programId,
+    );
+  }
+
+  Future<Ed25519HDPublicKey> mockPriceFeedPda() {
+    return Ed25519HDPublicKey.findProgramAddress(
+      seeds: ['mock_price_feed'.codeUnits],
+      programId: programId,
+    );
+  }
+
+  Future<Ed25519HDPublicKey> playerSessionPda({
+    required String playerAddress,
+    required Ed25519HDPublicKey sessionAuthority,
+  }) {
+    return Ed25519HDPublicKey.findProgramAddress(
+      seeds: [
+        'player_session'.codeUnits,
+        Ed25519HDPublicKey.fromBase58(playerAddress).bytes,
+        sessionAuthority.bytes,
+      ],
+      programId: programId,
+    );
+  }
+
+  Future<Ed25519HDPublicKey> dailyPoolPda(int dayId) {
+    return Ed25519HDPublicKey.findProgramAddress(
+      seeds: ['daily_pool'.codeUnits, _u64List(dayId)],
+      programId: programId,
+    );
+  }
+
+  Future<Ed25519HDPublicKey> dailyPlayerPda({
+    required int dayId,
+    required String playerAddress,
+  }) {
+    return Ed25519HDPublicKey.findProgramAddress(
+      seeds: [
+        'daily_player'.codeUnits,
+        _u64List(dayId),
+        Ed25519HDPublicKey.fromBase58(playerAddress).bytes,
+      ],
+      programId: programId,
+    );
+  }
+
+  Future<Ed25519HDPublicKey> gameRoundPda({
+    required String playerAddress,
+    required int roundId,
+  }) {
+    return Ed25519HDPublicKey.findProgramAddress(
+      seeds: [
+        'game_round'.codeUnits,
+        Ed25519HDPublicKey.fromBase58(playerAddress).bytes,
+        _u64List(roundId),
+      ],
+      programId: programId,
+    );
+  }
+
+  int currentUtcDayId() =>
+      DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000 ~/ 86400;
 
   Future<PlayerVault> fetchVault(String playerAddress) async {
-    // TODO: decode PlayerVault account via generated Anchor IDL.
-    return PlayerVault.empty.copyFor(playerAddress);
+    final pda = await playerVaultPda(playerAddress);
+    final data = await _accountBytes(pda);
+    if (data == null || data.length < 65) {
+      return PlayerVault.empty.copyFor(playerAddress);
+    }
+    final reader = _Reader(data);
+    reader.skip(8 + 32);
+    return PlayerVault(
+      player: playerAddress,
+      balanceLamports: reader.u64(),
+      totalDepositedLamports: reader.u64(),
+      totalWithdrawnLamports: reader.u64(),
+    );
   }
 
   Future<PlayerProfile> fetchProfile(String playerAddress) async {
-    // TODO: decode PlayerProfile account via generated Anchor IDL.
-    return PlayerProfile.empty.copyFor(playerAddress);
+    final pda = await playerProfilePda(playerAddress);
+    final data = await _accountBytes(pda);
+    if (data == null || data.length < 153) {
+      return PlayerProfile.empty.copyFor(playerAddress);
+    }
+    final reader = _Reader(data);
+    reader.skip(8 + 32);
+    final totalGames = reader.u64();
+    final totalWins = reader.u64();
+    final totalLosses = reader.u64();
+    final totalLong = reader.u64();
+    final totalShort = reader.u64();
+    reader.skip(8 * 3);
+    final exp = reader.u64();
+    final level = reader.u64();
+    final currentStreak = reader.u64();
+    final bestStreak = reader.u64();
+    return PlayerProfile(
+      player: playerAddress,
+      totalGames: totalGames,
+      totalWins: totalWins,
+      totalLosses: totalLosses,
+      totalLong: totalLong,
+      totalShort: totalShort,
+      exp: exp,
+      level: level,
+      currentStreak: currentStreak,
+      bestStreak: bestStreak,
+    );
   }
 
   Future<DailyPool> fetchDailyPool() async {
@@ -63,15 +174,30 @@ class CandleClashProgram {
     return const [];
   }
 
-  Future<Uint8List> buildInitializePlayerTransaction(String playerAddress) async {
-    throw UnimplementedError('Build initialize_player from Anchor IDL.');
+  Future<Uint8List> buildInitializePlayerTransaction(
+    String playerAddress,
+  ) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return _walletTransaction(
+      payer: player,
+      instructions: [await initializePlayerInstruction(playerAddress)],
+    );
   }
 
   Future<Uint8List> buildDepositTransaction({
     required String playerAddress,
     required int lamports,
   }) async {
-    throw UnimplementedError('Build deposit from Anchor IDL.');
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return _walletTransaction(
+      payer: player,
+      instructions: [
+        await depositInstruction(
+          playerAddress: playerAddress,
+          lamports: lamports,
+        ),
+      ],
+    );
   }
 
   Future<Uint8List> buildWithdrawTransaction({
@@ -81,14 +207,55 @@ class CandleClashProgram {
     throw UnimplementedError('Build withdraw from Anchor IDL.');
   }
 
-  Future<Ed25519HDKeyPair> createSessionAuthority() => Ed25519HDKeyPair.random();
+  Future<Ed25519HDKeyPair> createSessionAuthority() =>
+      Ed25519HDKeyPair.random();
 
   Future<Uint8List> buildStartSessionTransaction({
     required String playerAddress,
     required String sessionAuthority,
     required int maxSpendLamports,
   }) async {
-    throw UnimplementedError('Build start_session from Anchor IDL.');
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return _walletTransaction(
+      payer: player,
+      instructions: [
+        await startSessionInstruction(
+          playerAddress: playerAddress,
+          sessionAuthority: Ed25519HDPublicKey.fromBase58(sessionAuthority),
+          maxSpendLamports: maxSpendLamports,
+        ),
+      ],
+    );
+  }
+
+  Future<Uint8List> buildSetupTransaction({
+    required String playerAddress,
+    required Ed25519HDPublicKey sessionAuthority,
+    required int depositLamports,
+    required int maxSpendLamports,
+    required int sessionFundingLamports,
+  }) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    final instructions = <Instruction>[
+      await initializePlayerInstruction(playerAddress),
+      if (sessionFundingLamports > 0)
+        SystemInstruction.transfer(
+          fundingAccount: player,
+          recipientAccount: sessionAuthority,
+          lamports: sessionFundingLamports,
+        ),
+      if (depositLamports > 0)
+        await depositInstruction(
+          playerAddress: playerAddress,
+          lamports: depositLamports,
+        ),
+      await startSessionInstruction(
+        playerAddress: playerAddress,
+        sessionAuthority: sessionAuthority,
+        maxSpendLamports: maxSpendLamports,
+      ),
+    ];
+    return _walletTransaction(payer: player, instructions: instructions);
   }
 
   Future<Uint8List> buildStartRoundTransaction({
@@ -98,7 +265,9 @@ class CandleClashProgram {
     required RoundDirection direction,
     required int dayId,
   }) async {
-    throw UnimplementedError('Build start_round signed by session authority.');
+    throw UnimplementedError(
+      'Use sendStartRound with local session authority.',
+    );
   }
 
   Future<Uint8List> buildSettleRoundTransaction({
@@ -106,30 +275,317 @@ class CandleClashProgram {
     required String sessionAuthority,
     required int roundId,
   }) async {
-    throw UnimplementedError('Build settle_round signed by session authority.');
+    throw UnimplementedError(
+      'Use sendSettleRound with local session authority.',
+    );
+  }
+
+  Future<String> sendStartRound({
+    required String playerAddress,
+    required Ed25519HDKeyPair sessionAuthority,
+    required int roundId,
+    required RoundDirection direction,
+  }) async {
+    final ix = await startRoundInstruction(
+      playerAddress: playerAddress,
+      sessionAuthority: sessionAuthority.publicKey,
+      roundId: roundId,
+      direction: direction,
+      dayId: currentUtcDayId(),
+    );
+    return _signedSend(Message.only(ix), [sessionAuthority]);
+  }
+
+  Future<String> sendSettleRound({
+    required String playerAddress,
+    required Ed25519HDKeyPair sessionAuthority,
+    required int roundId,
+  }) async {
+    final ix = await settleRoundInstruction(
+      playerAddress: playerAddress,
+      sessionAuthority: sessionAuthority.publicKey,
+      roundId: roundId,
+    );
+    return _signedSend(Message.only(ix), [sessionAuthority]);
+  }
+
+  Future<AnchorInstruction> initializePlayerInstruction(
+    String playerAddress,
+  ) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return AnchorInstruction.forMethod(
+      programId: programId,
+      namespace: 'global',
+      method: 'initialize_player',
+      accounts: [
+        AccountMeta.writeable(pubKey: player, isSigner: true),
+        AccountMeta.writeable(
+          pubKey: await playerProfilePda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await playerVaultPda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.readonly(pubKey: systemProgramId, isSigner: false),
+      ],
+    );
+  }
+
+  Future<AnchorInstruction> depositInstruction({
+    required String playerAddress,
+    required int lamports,
+  }) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return AnchorInstruction.forMethod(
+      programId: programId,
+      namespace: 'global',
+      method: 'deposit',
+      arguments: ByteArray.u64(lamports),
+      accounts: [
+        AccountMeta.writeable(pubKey: player, isSigner: true),
+        AccountMeta.writeable(
+          pubKey: await playerVaultPda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.readonly(pubKey: systemProgramId, isSigner: false),
+      ],
+    );
+  }
+
+  Future<AnchorInstruction> startSessionInstruction({
+    required String playerAddress,
+    required Ed25519HDPublicKey sessionAuthority,
+    required int maxSpendLamports,
+  }) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return AnchorInstruction.forMethod(
+      programId: programId,
+      namespace: 'global',
+      method: 'start_session',
+      arguments: ByteArray.merge([
+        sessionAuthority.toByteArray(),
+        ByteArray.u64(maxSpendLamports),
+      ]),
+      accounts: [
+        AccountMeta.readonly(pubKey: await globalConfigPda(), isSigner: false),
+        AccountMeta.writeable(pubKey: player, isSigner: true),
+        AccountMeta.readonly(
+          pubKey: await playerVaultPda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await playerSessionPda(
+            playerAddress: playerAddress,
+            sessionAuthority: sessionAuthority,
+          ),
+          isSigner: false,
+        ),
+        AccountMeta.readonly(pubKey: systemProgramId, isSigner: false),
+      ],
+    );
+  }
+
+  Future<AnchorInstruction> startRoundInstruction({
+    required String playerAddress,
+    required Ed25519HDPublicKey sessionAuthority,
+    required int roundId,
+    required RoundDirection direction,
+    required int dayId,
+  }) async {
+    return AnchorInstruction.forMethod(
+      programId: programId,
+      namespace: 'global',
+      method: 'start_round',
+      arguments: ByteArray.merge([
+        ByteArray.u64(roundId),
+        ByteArray.u8(direction == RoundDirection.long ? 0 : 1),
+        ByteArray.u64(dayId),
+      ]),
+      accounts: [
+        AccountMeta.readonly(pubKey: await globalConfigPda(), isSigner: false),
+        AccountMeta.readonly(
+          pubKey: Ed25519HDPublicKey.fromBase58(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(pubKey: sessionAuthority, isSigner: true),
+        AccountMeta.writeable(
+          pubKey: await playerProfilePda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await playerVaultPda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await playerSessionPda(
+            playerAddress: playerAddress,
+            sessionAuthority: sessionAuthority,
+          ),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await dailyPoolPda(dayId),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await dailyPlayerPda(
+            dayId: dayId,
+            playerAddress: playerAddress,
+          ),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await gameRoundPda(
+            playerAddress: playerAddress,
+            roundId: roundId,
+          ),
+          isSigner: false,
+        ),
+        AccountMeta.readonly(pubKey: await mockPriceFeedPda(), isSigner: false),
+        AccountMeta.readonly(pubKey: systemProgramId, isSigner: false),
+      ],
+    );
+  }
+
+  Future<AnchorInstruction> settleRoundInstruction({
+    required String playerAddress,
+    required Ed25519HDPublicKey sessionAuthority,
+    required int roundId,
+  }) async {
+    final dayId = currentUtcDayId();
+    return AnchorInstruction.forMethod(
+      programId: programId,
+      namespace: 'global',
+      method: 'settle_round',
+      arguments: ByteArray.u64(roundId),
+      accounts: [
+        AccountMeta.readonly(pubKey: sessionAuthority, isSigner: true),
+        AccountMeta.writeable(
+          pubKey: await playerProfilePda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await dailyPlayerPda(
+            dayId: dayId,
+            playerAddress: playerAddress,
+          ),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
+          pubKey: await gameRoundPda(
+            playerAddress: playerAddress,
+            roundId: roundId,
+          ),
+          isSigner: false,
+        ),
+        AccountMeta.readonly(pubKey: await mockPriceFeedPda(), isSigner: false),
+      ],
+    );
+  }
+
+  Future<Uint8List> _walletTransaction({
+    required Ed25519HDPublicKey payer,
+    required List<Instruction> instructions,
+  }) async {
+    final latest = await rpc.getLatestBlockhash(
+      commitment: Commitment.confirmed,
+    );
+    final compiled = Message(
+      instructions: instructions,
+    ).compile(recentBlockhash: latest.value.blockhash, feePayer: payer);
+    final signatures = List.generate(
+      compiled.requiredSignatureCount,
+      (index) => Signature(
+        List<int>.filled(64, 0),
+        publicKey: compiled.accountKeys[index],
+      ),
+    );
+    return Uint8List.fromList(
+      SignedTx(
+        compiledMessage: compiled,
+        signatures: signatures,
+      ).toByteArray().toList(),
+    );
+  }
+
+  Future<String> _signedSend(
+    Message message,
+    List<Ed25519HDKeyPair> signers,
+  ) async {
+    final signed = await rpc.signMessage(
+      message,
+      signers,
+      commitment: Commitment.confirmed,
+    );
+    await AppLogger.info('send tx ${signed.id}');
+    return rpc.sendTransaction(
+      signed.encode(),
+      preflightCommitment: Commitment.confirmed,
+      maxRetries: 3,
+    );
+  }
+
+  Future<List<int>?> _accountBytes(Ed25519HDPublicKey pubkey) async {
+    try {
+      final account = await rpc.getAccountInfo(
+        pubkey.toBase58(),
+        encoding: Encoding.base64,
+        commitment: Commitment.confirmed,
+      );
+      final data = account.value?.data;
+      if (data is BinaryAccountData) return data.data;
+    } catch (error, stack) {
+      await AppLogger.error(
+        'fetch account ${pubkey.toBase58()} failed',
+        error,
+        stack,
+      );
+    }
+    return null;
+  }
+
+  List<int> _u64List(int value) => ByteArray.u64(value).toList(growable: false);
+}
+
+class _Reader {
+  _Reader(List<int> data)
+    : _data = ByteData.sublistView(Uint8List.fromList(data));
+
+  final ByteData _data;
+  int _offset = 0;
+
+  void skip(int bytes) {
+    _offset += bytes;
+  }
+
+  int u64() {
+    final value = _data.getUint64(_offset, Endian.little);
+    _offset += 8;
+    return value;
   }
 }
 
 extension on PlayerVault {
   PlayerVault copyFor(String playerAddress) => PlayerVault(
-        player: playerAddress,
-        balanceLamports: balanceLamports,
-        totalDepositedLamports: totalDepositedLamports,
-        totalWithdrawnLamports: totalWithdrawnLamports,
-      );
+    player: playerAddress,
+    balanceLamports: balanceLamports,
+    totalDepositedLamports: totalDepositedLamports,
+    totalWithdrawnLamports: totalWithdrawnLamports,
+  );
 }
 
 extension on PlayerProfile {
   PlayerProfile copyFor(String playerAddress) => PlayerProfile(
-        player: playerAddress,
-        totalGames: totalGames,
-        totalWins: totalWins,
-        totalLosses: totalLosses,
-        totalLong: totalLong,
-        totalShort: totalShort,
-        exp: exp,
-        level: level,
-        currentStreak: currentStreak,
-        bestStreak: bestStreak,
-      );
+    player: playerAddress,
+    totalGames: totalGames,
+    totalWins: totalWins,
+    totalLosses: totalLosses,
+    totalLong: totalLong,
+    totalShort: totalShort,
+    exp: exp,
+    level: level,
+    currentStreak: currentStreak,
+    bestStreak: bestStreak,
+  );
 }

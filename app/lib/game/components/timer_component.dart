@@ -3,16 +3,16 @@ import 'package:flutter/material.dart';
 
 class ClashTimerComponent extends TextComponent {
   ClashTimerComponent({required this.totalSeconds})
-      : super(
-          text: '$totalSeconds',
-          textRenderer: TextPaint(
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 30,
-              fontWeight: FontWeight.w800,
-            ),
+    : super(
+        text: '$totalSeconds',
+        textRenderer: TextPaint(
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
           ),
-        );
+        ),
+      );
 
   final int totalSeconds;
   double _remaining = 0;

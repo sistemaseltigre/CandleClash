@@ -5,6 +5,7 @@ import 'package:solana/base58.dart';
 import 'package:solana_mobile_client/solana_mobile_client.dart';
 
 import '../config/rpc_config.dart';
+import '../services/app_logger.dart';
 
 class WalletConnection {
   const WalletConnection({
@@ -44,6 +45,7 @@ class WalletService {
   Future<WalletConnection?> connect() async {
     try {
       final endpointAvailable = await LocalAssociationScenario.isAvailable();
+      await AppLogger.info('wallet connect isAvailable=$endpointAvailable');
       _debugLog('isAvailable=$endpointAvailable');
       if (!endpointAvailable) return null;
 
@@ -64,6 +66,7 @@ class WalletService {
         }
       }
       _debugLog('connect failed: $lastError');
+      await AppLogger.error('wallet connect failed', lastError);
       return null;
     } catch (error, stackTrace) {
       assert(() {
@@ -73,6 +76,7 @@ class WalletService {
         print('[WalletService] stack: $stackTrace');
         return true;
       }());
+      await AppLogger.error('wallet connect exception', error, stackTrace);
       return null;
     }
   }
@@ -82,6 +86,7 @@ class WalletService {
   ) async {
     if (_connection == null) return const [];
     final result = await _withReauthorizedClient((client) async {
+      await AppLogger.info('wallet signAndSend txCount=${transactions.length}');
       final signed = await client
           .signAndSendTransactions(transactions: transactions)
           .timeout(_authorizeTimeout);
@@ -104,12 +109,14 @@ class WalletService {
     LocalAssociationScenario? scenario;
     try {
       scenario = await LocalAssociationScenario.create();
+      await AppLogger.info('wallet scenario created');
       final clientFuture = scenario.start().timeout(_authorizeTimeout);
       // This launches the wallet picker/activity. Without it, many Android
       // wallets never surface the authorize request.
       // ignore: discarded_futures
       scenario.startActivityForResult(null);
       final client = await clientFuture;
+      await AppLogger.info('wallet client started');
       await Future<void>.delayed(_associationSettleDelay);
 
       final result = await client
@@ -127,9 +134,11 @@ class WalletService {
         publicKeyBytes: result.publicKey,
       );
       _connection = connection;
+      await AppLogger.info('wallet authorized address=${connection.address}');
       return connection;
     } finally {
       await scenario?.close();
+      await AppLogger.info('wallet scenario closed');
     }
   }
 
@@ -142,6 +151,7 @@ class WalletService {
     LocalAssociationScenario? scenario;
     try {
       scenario = await LocalAssociationScenario.create();
+      await AppLogger.info('wallet reauthorize scenario created');
       final clientFuture = scenario.start().timeout(_authorizeTimeout);
       // ignore: discarded_futures
       scenario.startActivityForResult(null);
@@ -162,9 +172,13 @@ class WalletService {
         authToken: result.authToken,
         publicKeyBytes: result.publicKey,
       );
+      await AppLogger.info(
+        'wallet reauthorized address=${_connection!.address}',
+      );
       return action(client);
     } finally {
       await scenario?.close();
+      await AppLogger.info('wallet reauthorize scenario closed');
     }
   }
 

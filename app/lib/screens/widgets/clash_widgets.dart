@@ -27,7 +27,11 @@ class ClashLogo extends StatelessWidget {
 }
 
 class ClashPanel extends StatelessWidget {
-  const ClashPanel({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
+  const ClashPanel({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+  });
 
   final Widget child;
   final EdgeInsets padding;
@@ -85,12 +89,20 @@ class NeonStat extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               label.toUpperCase(),
-              style: const TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1),
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 10,
+                letterSpacing: 1,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               value,
-              style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: color,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ),
@@ -114,10 +126,30 @@ class ClashBottomNav extends StatelessWidget {
           padding: EdgeInsets.zero,
           child: Row(
             children: [
-              _NavItem(label: 'Play', icon: Icons.home_rounded, route: '/', active: current == 'play'),
-              _NavItem(label: 'Board', icon: Icons.emoji_events, route: '/leaderboard', active: current == 'leaderboard'),
-              _NavItem(label: 'Wallet', icon: Icons.account_balance_wallet, route: '/wallet', active: current == 'wallet'),
-              _NavItem(label: 'Game', icon: Icons.candlestick_chart, route: '/game', active: current == 'game'),
+              _NavItem(
+                label: 'Play',
+                icon: Icons.home_rounded,
+                route: '/',
+                active: current == 'play',
+              ),
+              _NavItem(
+                label: 'Board',
+                icon: Icons.emoji_events,
+                route: '/leaderboard',
+                active: current == 'leaderboard',
+              ),
+              _NavItem(
+                label: 'Wallet',
+                icon: Icons.account_balance_wallet,
+                route: '/wallet',
+                active: current == 'wallet',
+              ),
+              _NavItem(
+                label: 'Game',
+                icon: Icons.candlestick_chart,
+                route: '/game',
+                active: current == 'game',
+              ),
             ],
           ),
         ),
@@ -144,7 +176,9 @@ class _NavItem extends StatelessWidget {
     final color = active ? clashGreen : Colors.white54;
     return Expanded(
       child: InkWell(
-        onTap: active ? null : () => Navigator.pushReplacementNamed(context, route),
+        onTap: active
+            ? null
+            : () => Navigator.pushReplacementNamed(context, route),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
@@ -152,7 +186,10 @@ class _NavItem extends StatelessWidget {
             children: [
               Icon(icon, color: color, size: 22),
               const SizedBox(height: 4),
-              Text(label.toUpperCase(), style: TextStyle(color: color, fontSize: 10)),
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(color: color, fontSize: 10),
+              ),
             ],
           ),
         ),
