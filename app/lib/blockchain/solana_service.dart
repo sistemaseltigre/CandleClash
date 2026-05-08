@@ -1,0 +1,14 @@
+import 'package:solana/solana.dart';
+
+import '../config/rpc_config.dart';
+
+class SolanaService {
+  SolanaService({RpcClient? rpc}) : rpc = rpc ?? RpcClient(RpcConfig.devnetRpcUrl);
+
+  final RpcClient rpc;
+
+  Future<double> getSolBalance(String address) async {
+    final result = await rpc.getBalance(address);
+    return result.value / lamportsPerSol;
+  }
+}

@@ -1,0 +1,17 @@
+.DS_Store
+
+# Anchor / Rust
+anchor/target/
+anchor/.anchor/
+anchor/node_modules/
+
+# Flutter
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+
+# IDE
+.idea/
+.vscode/
