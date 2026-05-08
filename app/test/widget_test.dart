@@ -13,7 +13,7 @@ void main() {
   testWidgets('renders home screen', (WidgetTester tester) async {
     await tester.pumpWidget(const CandleClashApp());
 
-    expect(find.text('Candle Clash'), findsOneWidget);
-    expect(find.text('Connect wallet'), findsOneWidget);
+    expect(find.text('CONNECT WALLET'), findsOneWidget);
+    expect(find.text('WILL THE NEXT CANDLE'), findsOneWidget);
   });
 }

@@ -15,10 +15,17 @@ class CandleClashApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff00c2a8),
+          seedColor: const Color(0xff00ff6a),
           brightness: Brightness.dark,
         ),
-        scaffoldBackgroundColor: const Color(0xff101417),
+        scaffoldBackgroundColor: const Color(0xff080f19),
+        fontFamily: 'Roboto',
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xff080f19),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: false,
+        ),
         useMaterial3: true,
       ),
       routes: {
