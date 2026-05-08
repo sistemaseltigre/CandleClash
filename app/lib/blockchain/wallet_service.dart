@@ -235,7 +235,7 @@ class WalletService {
       await AppLogger.info(
         'wallet reauthorized address=${_connection!.address}',
       );
-      return action(client);
+      return await action(client);
     } finally {
       await scenario?.close();
       await AppLogger.info('wallet reauthorize scenario closed');
