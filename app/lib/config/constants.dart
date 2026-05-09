@@ -15,12 +15,11 @@ class AppConstants {
   static const candleClashProgramId =
       'E5bjWeyYLChSt2RMZUH3f9QVyCvU9z1sBRyhRB4jTgL3';
 
-  // Configure the official Pyth SOL/USD devnet price account here.
-  // The Anchor MVP currently uses a mock-compatible price account for tests;
-  // swap the program reader to Pyth before production settlement.
   static const pythSolUsdDevnetPriceAccount =
-      'PUT_PYTH_SOL_USD_DEVNET_PRICE_ACCOUNT_HERE';
+      '7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE';
+  static const pythSolUsdFeedId =
+      'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
 
-  // Optional: add Titan Exchange endpoint/key here for visual-only live price.
-  static const titanPriceUrl = 'https://api.jup.ag/price/v2?ids=SOL';
+  static const pythHermesLatestPriceUrl =
+      'https://hermes.pyth.network/v2/updates/price/latest?parsed=true&ids[]=0x$pythSolUsdFeedId';
 }

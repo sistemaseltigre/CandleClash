@@ -60,6 +60,12 @@ class CandleClashProgram {
     );
   }
 
+  Ed25519HDPublicKey officialPriceFeed() {
+    return Ed25519HDPublicKey.fromBase58(
+      AppConstants.pythSolUsdDevnetPriceAccount,
+    );
+  }
+
   Future<Ed25519HDPublicKey> playerSessionPda({
     required String playerAddress,
     required Ed25519HDPublicKey sessionAuthority,
@@ -562,7 +568,7 @@ class CandleClashProgram {
           ),
           isSigner: false,
         ),
-        AccountMeta.readonly(pubKey: await mockPriceFeedPda(), isSigner: false),
+        AccountMeta.readonly(pubKey: officialPriceFeed(), isSigner: false),
         AccountMeta.readonly(pubKey: systemProgramId, isSigner: false),
       ],
     );
@@ -593,13 +599,17 @@ class CandleClashProgram {
           isSigner: false,
         ),
         AccountMeta.writeable(
+          pubKey: await playerVaultPda(playerAddress),
+          isSigner: false,
+        ),
+        AccountMeta.writeable(
           pubKey: await gameRoundPda(
             playerAddress: playerAddress,
             roundId: roundId,
           ),
           isSigner: false,
         ),
-        AccountMeta.readonly(pubKey: await mockPriceFeedPda(), isSigner: false),
+        AccountMeta.readonly(pubKey: officialPriceFeed(), isSigner: false),
       ],
     );
   }

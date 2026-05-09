@@ -95,6 +95,7 @@ describe("candle_clash", () => {
         authority: sessionAuthority.publicKey,
         playerProfile: playerProfile(),
         dailyPlayer: dailyPlayer(),
+        playerVault: playerVault(),
         gameRound: gameRound(roundId),
         priceFeed,
       })

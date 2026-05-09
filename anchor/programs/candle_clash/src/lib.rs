@@ -11,6 +11,19 @@ const DAILY_POOL_SEED: &[u8] = b"daily_pool";
 const DAILY_PLAYER_SEED: &[u8] = b"daily_player";
 const GAME_ROUND_SEED: &[u8] = b"game_round";
 const MOCK_PRICE_FEED_SEED: &[u8] = b"mock_price_feed";
+const PYTH_SOL_USD_PRICE_FEED: Pubkey =
+    pubkey!("7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE");
+const PYTH_SOL_USD_FEED_ID: [u8; 32] = [
+    0xef, 0x0d, 0x8b, 0x6f, 0xda, 0x2c, 0xeb, 0xa4, 0x1d, 0xa1, 0x5d, 0x40, 0x95, 0xd1, 0xda,
+    0x39, 0x2a, 0x0d, 0x2f, 0x8e, 0xd0, 0xc6, 0xc7, 0xbc, 0x0f, 0x4c, 0xfa, 0xc8, 0xc2, 0x80,
+    0xb5, 0x6d,
+];
+const PYTH_RECEIVER_PROGRAM_ID: Pubkey =
+    pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+const PYTH_PRICE_UPDATE_V2_DISCRIMINATOR: [u8; 8] =
+    [34, 241, 35, 99, 157, 126, 244, 205];
+const PYTH_MAXIMUM_AGE_SECONDS: i64 = 180;
+const MICRO_USD_DECIMALS: i32 = 6;
 
 const SECONDS_PER_DAY: i64 = 86_400;
 const DIRECTION_LONG: u8 = 0;
@@ -222,7 +235,7 @@ pub mod candle_clash {
             CandleClashError::InsufficientVaultBalance
         );
 
-        let price = read_price(&ctx.accounts.price_feed)?;
+        let price = read_price(&ctx.accounts.price_feed.to_account_info())?;
         let day_id = day_id_from_timestamp(now)?;
         require!(client_day_id == day_id, CandleClashError::Unauthorized);
 
@@ -315,8 +328,9 @@ pub mod candle_clash {
             CandleClashError::RoundNotReadyToSettle
         );
 
-        let end_price = read_price(&ctx.accounts.price_feed)?;
+        let end_price = read_price(&ctx.accounts.price_feed.to_account_info())?;
         let round = &mut ctx.accounts.game_round;
+        let pushed = end_price == round.start_price;
         let won = match round.direction {
             DIRECTION_LONG => end_price > round.start_price,
             DIRECTION_SHORT => end_price < round.start_price,
@@ -336,7 +350,9 @@ pub mod candle_clash {
         } else {
             0
         };
-        let score_delta = if won {
+        let score_delta = if pushed {
+            0
+        } else if won {
             checked_add(WIN_SCORE, streak_score_bonus)?
         } else {
             LOSS_SCORE
@@ -349,13 +365,19 @@ pub mod candle_clash {
         } else {
             0
         };
-        let exp_delta = if won {
+        let exp_delta = if pushed {
+            PLAY_EXP
+        } else if won {
             checked_add(checked_add(PLAY_EXP, WIN_EXP)?, streak_exp_bonus)?
         } else {
             checked_add(PLAY_EXP, LOSS_EXP)?
         };
 
-        if won {
+        if pushed {
+            ctx.accounts.player_vault.balance_lamports =
+                checked_add(ctx.accounts.player_vault.balance_lamports, round.entry_fee_lamports)?;
+            profile.current_streak = 0;
+        } else if won {
             profile.total_wins = checked_add(profile.total_wins, 1)?;
             daily_player.daily_wins = checked_add(daily_player.daily_wins, 1)?;
             profile.current_streak = streak_after;
@@ -578,7 +600,8 @@ pub struct StartRound<'info> {
         bump
     )]
     pub game_round: Account<'info, GameRound>,
-    pub price_feed: Account<'info, MockPriceFeed>,
+    /// CHECK: Pyth SOL/USD sponsored feed on devnet, or local mock in tests.
+    pub price_feed: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -592,11 +615,18 @@ pub struct SettleRound<'info> {
     pub daily_player: Account<'info, DailyPlayer>,
     #[account(
         mut,
+        seeds = [PLAYER_VAULT_SEED, game_round.player.as_ref()],
+        bump = player_vault.bump
+    )]
+    pub player_vault: Account<'info, PlayerVault>,
+    #[account(
+        mut,
         seeds = [GAME_ROUND_SEED, game_round.player.as_ref(), &round_id.to_le_bytes()],
         bump = game_round.bump
     )]
     pub game_round: Account<'info, GameRound>,
-    pub price_feed: Account<'info, MockPriceFeed>,
+    /// CHECK: Pyth SOL/USD sponsored feed on devnet, or local mock in tests.
+    pub price_feed: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -765,9 +795,114 @@ pub enum CandleClashError {
     MathOverflow,
 }
 
-fn read_price(feed: &Account<MockPriceFeed>) -> Result<i64> {
-    require!(feed.price > 0, CandleClashError::InvalidOraclePrice);
-    Ok(feed.price)
+fn read_price(feed: &AccountInfo) -> Result<i64> {
+    if feed.owner == &crate::ID {
+        return read_mock_price(feed);
+    }
+    read_pyth_price(feed)
+}
+
+fn read_mock_price(feed: &AccountInfo) -> Result<i64> {
+    let data = feed.try_borrow_data()?;
+    require!(data.len() >= 48, CandleClashError::InvalidOraclePrice);
+    let price = read_i64(&data, 40)?;
+    require!(price > 0, CandleClashError::InvalidOraclePrice);
+    Ok(price)
+}
+
+fn read_pyth_price(feed: &AccountInfo) -> Result<i64> {
+    require_keys_eq!(feed.key(), PYTH_SOL_USD_PRICE_FEED, CandleClashError::InvalidOraclePrice);
+    require_keys_eq!(
+        *feed.owner,
+        PYTH_RECEIVER_PROGRAM_ID,
+        CandleClashError::InvalidOraclePrice
+    );
+
+    let data = feed.try_borrow_data()?;
+    require!(data.len() >= 133, CandleClashError::InvalidOraclePrice);
+    require!(
+        data[0..8] == PYTH_PRICE_UPDATE_V2_DISCRIMINATOR,
+        CandleClashError::InvalidOraclePrice
+    );
+
+    let mut offset = 8 + 32;
+    let verification_tag = data[offset];
+    offset += 1;
+    if verification_tag == 0 {
+        require!(data.len() >= 134, CandleClashError::InvalidOraclePrice);
+        offset += 1;
+    } else {
+        require!(verification_tag == 1, CandleClashError::InvalidOraclePrice);
+    }
+
+    require!(
+        data[offset..offset + 32] == PYTH_SOL_USD_FEED_ID,
+        CandleClashError::InvalidOraclePrice
+    );
+    offset += 32;
+
+    let price = read_i64(&data, offset)?;
+    offset += 8;
+    let _conf = read_u64(&data, offset)?;
+    offset += 8;
+    let exponent = read_i32(&data, offset)?;
+    offset += 4;
+    let publish_time = read_i64(&data, offset)?;
+
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        publish_time
+            .checked_add(PYTH_MAXIMUM_AGE_SECONDS)
+            .ok_or(CandleClashError::MathOverflow)?
+            >= now,
+        CandleClashError::InvalidOraclePrice
+    );
+    normalize_pyth_price_to_micro_usd(price, exponent)
+}
+
+fn normalize_pyth_price_to_micro_usd(price: i64, exponent: i32) -> Result<i64> {
+    require!(price > 0, CandleClashError::InvalidOraclePrice);
+    let scale_exponent = MICRO_USD_DECIMALS
+        .checked_add(exponent)
+        .ok_or(CandleClashError::MathOverflow)?;
+    if scale_exponent >= 0 {
+        let multiplier = 10_i64
+            .checked_pow(scale_exponent as u32)
+            .ok_or(CandleClashError::MathOverflow)?;
+        price.checked_mul(multiplier).ok_or(CandleClashError::MathOverflow.into())
+    } else {
+        let divisor = 10_i64
+            .checked_pow((-scale_exponent) as u32)
+            .ok_or(CandleClashError::MathOverflow)?;
+        Ok(price / divisor)
+    }
+}
+
+fn read_i64(data: &[u8], offset: usize) -> Result<i64> {
+    let bytes: [u8; 8] = data
+        .get(offset..offset + 8)
+        .ok_or(CandleClashError::InvalidOraclePrice)?
+        .try_into()
+        .map_err(|_| CandleClashError::InvalidOraclePrice)?;
+    Ok(i64::from_le_bytes(bytes))
+}
+
+fn read_i32(data: &[u8], offset: usize) -> Result<i32> {
+    let bytes: [u8; 4] = data
+        .get(offset..offset + 4)
+        .ok_or(CandleClashError::InvalidOraclePrice)?
+        .try_into()
+        .map_err(|_| CandleClashError::InvalidOraclePrice)?;
+    Ok(i32::from_le_bytes(bytes))
+}
+
+fn read_u64(data: &[u8], offset: usize) -> Result<u64> {
+    let bytes: [u8; 8] = data
+        .get(offset..offset + 8)
+        .ok_or(CandleClashError::InvalidOraclePrice)?
+        .try_into()
+        .map_err(|_| CandleClashError::InvalidOraclePrice)?;
+    Ok(u64::from_le_bytes(bytes))
 }
 
 fn checked_add(left: u64, right: u64) -> Result<u64> {

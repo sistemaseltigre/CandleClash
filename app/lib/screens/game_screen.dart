@@ -150,10 +150,21 @@ class _GameScreenState extends State<GameScreen> {
                   'Round settled. Vault ${_sol(session.vault.balanceLamports)} SOL';
               resultColor = Colors.white70;
             } else {
-              resultColor = round.won ? clashGreen : clashRed;
+              final pushed = _isPush(round);
+              resultColor = pushed
+                  ? clashYellow
+                  : round.won
+                  ? clashGreen
+                  : clashRed;
               lastRound = round;
-              result = round.won ? 'WIN' : 'LOSS';
-              if (round.won) {
+              result = pushed
+                  ? 'PUSH'
+                  : round.won
+                  ? 'WIN'
+                  : 'LOSS';
+              if (pushed) {
+                HapticFeedback.selectionClick();
+              } else if (round.won) {
                 HapticFeedback.heavyImpact();
               } else {
                 HapticFeedback.mediumImpact();
@@ -335,6 +346,9 @@ class _GameScreenState extends State<GameScreen> {
 String _sol(int lamports) =>
     (lamports / AppConstants.lamportsPerSol).toStringAsFixed(4);
 
+bool _isPush(GameRound round) =>
+    round.scoreDelta == 0 && round.startPrice == round.endPrice;
+
 class _PricePill extends StatelessWidget {
   const _PricePill({required this.price});
 
@@ -386,7 +400,12 @@ class _ResultBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = round.won ? clashGreen : clashRed;
+    final pushed = _isPush(round);
+    final color = pushed
+        ? clashYellow
+        : round.won
+        ? clashGreen
+        : clashRed;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -405,7 +424,11 @@ class _ResultBanner extends StatelessWidget {
       child: Column(
         children: [
           Text(
-            round.won ? 'WIN' : 'LOSS',
+            pushed
+                ? 'PUSH'
+                : round.won
+                ? 'WIN'
+                : 'LOSS',
             style: TextStyle(
               color: color,
               fontSize: 34,
