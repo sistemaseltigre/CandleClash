@@ -27,9 +27,11 @@ class _GameScreenState extends State<GameScreen> {
   double? visualPrice;
   String result =
       'Choose UP or DOWN. First play will open wallet to fund the session.';
+  Color resultColor = Colors.white70;
   bool roundActive = false;
   int nextRoundId = 10294;
   double progress = 1;
+  int poolLamports = 0;
 
   @override
   void initState() {
@@ -39,6 +41,7 @@ class _GameScreenState extends State<GameScreen> {
     );
     timer = Timer.periodic(const Duration(seconds: 2), (_) => refreshPrice());
     refreshPrice();
+    refreshPool();
   }
 
   @override
@@ -54,12 +57,19 @@ class _GameScreenState extends State<GameScreen> {
     game.visualPrice = price;
   }
 
+  Future<void> refreshPool() async {
+    final pool = await session.program.fetchDailyPool();
+    if (!mounted) return;
+    setState(() => poolLamports = pool.totalPoolLamports);
+  }
+
   Future<void> startRound(RoundDirection direction) async {
     if (roundActive) return;
     setState(() {
       roundActive = true;
       progress = 1;
       result = 'Preparing session...';
+      resultColor = Colors.white70;
     });
 
     final roundId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -113,11 +123,26 @@ class _GameScreenState extends State<GameScreen> {
           await AppLogger.info('settle_round sig=$settleSig round=$roundId');
           await Future<void>.delayed(const Duration(seconds: 1));
           await session.refresh();
+          await refreshPool();
+          final round = await session.program.fetchRound(
+            playerAddress: connection.address,
+            roundId: roundId,
+          );
           if (!mounted) return;
           setState(() {
             roundActive = false;
-            result =
-                'Round settled on devnet. Vault ${_sol(session.vault.balanceLamports)} SOL';
+            if (round == null) {
+              result =
+                  'Round settled. Vault ${_sol(session.vault.balanceLamports)} SOL';
+              resultColor = Colors.white70;
+            } else {
+              resultColor = round.won ? clashGreen : clashRed;
+              result =
+                  '${round.won ? 'YOU WON' : 'YOU LOST'}  ${round.scoreDelta} pts  +${round.expDelta} EXP\n'
+                  'Start ${round.startPrice.toStringAsFixed(4)} -> End ${round.endPrice.toStringAsFixed(4)} | '
+                  'Vault ${_sol(session.vault.balanceLamports)} SOL | '
+                  'Level ${session.profile.level} / EXP ${session.profile.exp}';
+            }
           });
         } catch (error, stack) {
           await AppLogger.error('settle_round failed', error, stack);
@@ -125,6 +150,7 @@ class _GameScreenState extends State<GameScreen> {
           setState(() {
             roundActive = false;
             result = 'Settle failed. Check candle_clash.log: $error';
+            resultColor = clashRed;
           });
         }
       });
@@ -134,6 +160,7 @@ class _GameScreenState extends State<GameScreen> {
       setState(() {
         roundActive = false;
         result = 'Round failed. Check candle_clash.log: $error';
+        resultColor = clashRed;
       });
     }
   }
@@ -171,9 +198,9 @@ class _GameScreenState extends State<GameScreen> {
                               ),
                             ),
                             const Spacer(),
-                            const Text(
-                              'Prize Pool  -- SOL',
-                              style: TextStyle(color: clashYellow),
+                            Text(
+                              'Prize Pool  ${_sol(poolLamports)} SOL',
+                              style: const TextStyle(color: clashYellow),
                             ),
                           ],
                         ),
@@ -246,21 +273,28 @@ class _GameScreenState extends State<GameScreen> {
                           onShort: () => startRound(RoundDirection.short),
                         ),
                         const SizedBox(height: 14),
-                        _InfoStrip(result: result),
+                        _InfoStrip(result: result, color: resultColor),
                       ],
                     ),
                   ),
                   const SizedBox(height: 14),
                   Row(
-                    children: const [
-                      NeonStat(
+                    children: [
+                      const NeonStat(
                         icon: Icons.bolt,
                         label: 'Entry Fee',
-                        value: '0.01',
+                        value: '0.00002',
                         color: clashPurple,
                       ),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       NeonStat(
+                        icon: Icons.account_balance_wallet,
+                        label: 'Vault',
+                        value: _sol(session.vault.balanceLamports),
+                        color: clashYellow,
+                      ),
+                      const SizedBox(width: 10),
+                      const NeonStat(
                         icon: Icons.verified_user,
                         label: 'Onchain',
                         value: 'Pyth',
@@ -302,9 +336,10 @@ class _PricePill extends StatelessWidget {
 }
 
 class _InfoStrip extends StatelessWidget {
-  const _InfoStrip({required this.result});
+  const _InfoStrip({required this.result, this.color = Colors.white70});
 
   final String result;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -319,7 +354,7 @@ class _InfoStrip extends StatelessWidget {
       child: Text(
         result,
         textAlign: TextAlign.center,
-        style: const TextStyle(color: Colors.white70),
+        style: TextStyle(color: color, fontWeight: FontWeight.w800),
       ),
     );
   }

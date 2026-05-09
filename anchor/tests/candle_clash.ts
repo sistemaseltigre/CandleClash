@@ -4,11 +4,11 @@ import { expect } from "chai";
 import { CandleClash } from "../target/types/candle_clash";
 
 const LAMPORTS_PER_SOL = anchor.web3.LAMPORTS_PER_SOL;
-const ENTRY_FEE = new anchor.BN(10_000_000);
-const POOL_FEE = new anchor.BN(7_000_000);
-const TREASURY_FEE = new anchor.BN(3_000_000);
-const SESSION_LIMIT = new anchor.BN(40_000_000);
-const DEPOSIT_AMOUNT = new anchor.BN(80_000_000);
+const ENTRY_FEE = new anchor.BN(20_000);
+const POOL_FEE = new anchor.BN(15_000);
+const TREASURY_FEE = new anchor.BN(5_000);
+const SESSION_LIMIT = new anchor.BN(900_000);
+const DEPOSIT_AMOUNT = new anchor.BN(1_000_000);
 
 describe("candle_clash", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
@@ -21,7 +21,8 @@ describe("candle_clash", () => {
 
   const pda = (seeds: Buffer[]) =>
     anchor.web3.PublicKey.findProgramAddressSync(seeds, program.programId)[0];
-  const u64 = (value: number) => new anchor.BN(value).toArrayLike(Buffer, "le", 8);
+  const u64 = (value: number) =>
+    new anchor.BN(value).toArrayLike(Buffer, "le", 8);
   const dayId = () => Math.floor(Date.now() / 1000 / 86_400);
 
   const globalConfig = pda([Buffer.from("global_config")]);
@@ -43,11 +44,7 @@ describe("candle_clash", () => {
       player.publicKey.toBuffer(),
     ]);
   const gameRound = (roundId: number) =>
-    pda([
-      Buffer.from("game_round"),
-      player.publicKey.toBuffer(),
-      u64(roundId),
-    ]);
+    pda([Buffer.from("game_round"), player.publicKey.toBuffer(), u64(roundId)]);
   const priceFeed = pda([Buffer.from("mock_price_feed")]);
 
   async function airdrop(pubkey: anchor.web3.PublicKey, sol = 2) {
@@ -61,7 +58,7 @@ describe("candle_clash", () => {
           fromPubkey: provider.wallet.publicKey,
           toPubkey: pubkey,
           lamports,
-        }),
+        })
       );
       await provider.sendAndConfirm(tx);
     }
@@ -119,7 +116,7 @@ describe("candle_clash", () => {
         TREASURY_FEE,
         new anchor.BN(1),
         new anchor.BN(3600),
-        SESSION_LIMIT,
+        SESSION_LIMIT
       )
       .accounts({
         globalConfig,
@@ -174,11 +171,11 @@ describe("candle_clash", () => {
     let vault = await program.account.playerVault.fetch(playerVault());
     expect(vault.balanceLamports.toString()).to.eq(DEPOSIT_AMOUNT.toString());
     expect(vault.totalDepositedLamports.toString()).to.eq(
-      DEPOSIT_AMOUNT.toString(),
+      DEPOSIT_AMOUNT.toString()
     );
 
     await program.methods
-      .withdraw(new anchor.BN(10_000_000))
+      .withdraw(new anchor.BN(100_000))
       .accounts({
         player: player.publicKey,
         playerVault: playerVault(),
@@ -187,8 +184,8 @@ describe("candle_clash", () => {
       .rpc();
 
     vault = await program.account.playerVault.fetch(playerVault());
-    expect(vault.balanceLamports.toNumber()).to.eq(70_000_000);
-    expect(vault.totalWithdrawnLamports.toNumber()).to.eq(10_000_000);
+    expect(vault.balanceLamports.toNumber()).to.eq(900_000);
+    expect(vault.totalWithdrawnLamports.toNumber()).to.eq(100_000);
   });
 
   it("starts a delegated session", async () => {
@@ -270,6 +267,6 @@ describe("candle_clash", () => {
     expect(daily.dailyShort.toNumber()).to.eq(1);
     expect(daily.dailyScore.toNumber()).to.eq(120);
     expect(pool.totalGames.toNumber()).to.eq(2);
-    expect(pool.totalPoolLamports.toNumber()).to.eq(14_000_000);
+    expect(pool.totalPoolLamports.toNumber()).to.eq(30_000);
   });
 });

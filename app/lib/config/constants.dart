@@ -3,10 +3,12 @@ class AppConstants {
 
   static const appName = 'Candle Clash';
   static const lamportsPerSol = 1000000000;
-  static const defaultEntryFeeLamports = 10000000;
+  static const defaultEntryFeeLamports = 20000;
+  static const defaultPoolFeeLamports = 15000;
+  static const defaultTreasuryFeeLamports = 5000;
   static const defaultRoundDurationSeconds = 5;
-  static const defaultDepositLamports = 50000000;
-  static const defaultSessionFundingLamports = 50000000;
+  static const defaultDepositLamports = 1000000;
+  static const defaultSessionFundingLamports = 2000000;
 
   // Replace after `anchor deploy --provider.cluster devnet`.
   static const candleClashProgramId =

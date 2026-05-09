@@ -218,14 +218,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: FilledButton(
                           onPressed: connected && !busy ? setupGame : null,
-                          child: const Text('DEPOSIT + SESSION'),
+                          child: const Text('DEPOSIT 0.001 + SESSION'),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: connected
-                              ? () => _comingSoon('Withdraw')
+                          onPressed:
+                              connected && !busy && vault.balanceLamports > 0
+                              ? withdrawAll
                               : null,
                           child: const Text('WITHDRAW'),
                         ),
@@ -241,13 +242,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       bottomNavigationBar: const ClashBottomNav(current: 'play'),
-    );
-  }
-
-  void _comingSoon(String action) {
-    setState(
-      () => status =
-          '$action will use the generated Anchor IDL transaction builder.',
     );
   }
 
@@ -272,8 +266,32 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> withdrawAll() async {
+    setState(() {
+      busy = true;
+      status = 'Opening wallet to withdraw internal balance...';
+    });
+    try {
+      final sig = await session.withdraw(vault.balanceLamports);
+      setState(() {
+        walletSol = session.walletSol;
+        vault = session.vault;
+        profile = session.profile;
+        status = 'Withdraw sent ${_short(sig)}';
+      });
+    } catch (error, stack) {
+      await AppLogger.error('home withdraw failed', error, stack);
+      setState(() => status = '$error');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   String _sol(int lamports) =>
       (lamports / AppConstants.lamportsPerSol).toStringAsFixed(4);
+
+  String _short(String value) =>
+      value.length < 14 ? value : '${value.substring(0, 6)}...';
 }
 
 class _BalancePill extends StatelessWidget {

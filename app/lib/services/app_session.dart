@@ -80,4 +80,54 @@ class AppSession {
     await refresh();
     sessionReady = true;
   }
+
+  Future<String> deposit(int lamports) async {
+    final activeConnection = connection ?? await connect();
+    if (activeConnection == null) {
+      throw StateError('Wallet is not connected.');
+    }
+    final tx = await program.buildDepositTransaction(
+      playerAddress: activeConnection.address,
+      lamports: lamports,
+    );
+    final signature = await wallet.signAndSendTransactionWithFallback(
+      transaction: tx,
+      rpc: program.rpc,
+    );
+    if (signature == null) {
+      throw StateError('Wallet did not return a deposit signature.');
+    }
+    await AppLogger.info(
+      'deposit sent signature=$signature lamports=$lamports',
+    );
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await refresh();
+    return signature;
+  }
+
+  Future<String> withdraw(int lamports) async {
+    final activeConnection = connection;
+    if (activeConnection == null) {
+      throw StateError('Wallet is not connected.');
+    }
+    final amount = lamports.clamp(0, vault.balanceLamports).toInt();
+    if (amount == 0) {
+      throw StateError('No internal balance available to withdraw.');
+    }
+    final tx = await program.buildWithdrawTransaction(
+      playerAddress: activeConnection.address,
+      lamports: amount,
+    );
+    final signature = await wallet.signAndSendTransactionWithFallback(
+      transaction: tx,
+      rpc: program.rpc,
+    );
+    if (signature == null) {
+      throw StateError('Wallet did not return a withdraw signature.');
+    }
+    await AppLogger.info('withdraw sent signature=$signature lamports=$amount');
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await refresh();
+    return signature;
+  }
 }

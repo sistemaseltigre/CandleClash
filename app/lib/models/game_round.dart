@@ -10,6 +10,7 @@ class GameRound {
     required this.won,
     required this.scoreDelta,
     required this.expDelta,
+    required this.entryFeeLamports,
   });
 
   final int roundId;
@@ -20,4 +21,5 @@ class GameRound {
   final bool won;
   final int scoreDelta;
   final int expDelta;
+  final int entryFeeLamports;
 }

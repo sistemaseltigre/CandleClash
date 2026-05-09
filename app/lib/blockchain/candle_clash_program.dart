@@ -160,9 +160,21 @@ class CandleClashProgram {
   }
 
   Future<DailyPool> fetchDailyPool() async {
-    // TODO: query DailyPool PDA for currentUtcDayId().
+    final dayId = currentUtcDayId();
+    final pda = await dailyPoolPda(dayId);
+    final data = await _accountBytes(pda);
+    if (data != null && data.length >= 50) {
+      final reader = _Reader(data);
+      reader.skip(8);
+      return DailyPool(
+        dayId: reader.u64(),
+        totalPoolLamports: reader.u64(),
+        totalGames: reader.u64(),
+        totalPlayers: reader.u64(),
+      );
+    }
     return DailyPool(
-      dayId: currentUtcDayId(),
+      dayId: dayId,
       totalPoolLamports: 0,
       totalGames: 0,
       totalPlayers: 0,
@@ -204,7 +216,16 @@ class CandleClashProgram {
     required String playerAddress,
     required int lamports,
   }) async {
-    throw UnimplementedError('Build withdraw from Anchor IDL.');
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return _walletTransaction(
+      payer: player,
+      instructions: [
+        await withdrawInstruction(
+          playerAddress: playerAddress,
+          lamports: lamports,
+        ),
+      ],
+    );
   }
 
   Future<Ed25519HDKeyPair> createSessionAuthority() =>
@@ -309,6 +330,44 @@ class CandleClashProgram {
     return _signedSend(Message.only(ix), [sessionAuthority]);
   }
 
+  Future<GameRound?> fetchRound({
+    required String playerAddress,
+    required int roundId,
+  }) async {
+    final pda = await gameRoundPda(
+      playerAddress: playerAddress,
+      roundId: roundId,
+    );
+    final data = await _accountBytes(pda);
+    if (data == null || data.length < 148) return null;
+    final reader = _Reader(data);
+    reader.skip(8 + 32 + 32);
+    final storedRoundId = reader.u64();
+    reader.skip(8);
+    final direction = reader.u8() == 0
+        ? RoundDirection.long
+        : RoundDirection.short;
+    final entryFee = reader.u64();
+    final startPrice = reader.i64() / 1000000;
+    final endPrice = reader.i64() / 1000000;
+    reader.skip(8 + 8);
+    final settled = reader.readBool();
+    final won = reader.readBool();
+    final scoreDelta = reader.u64();
+    final expDelta = reader.u64();
+    return GameRound(
+      roundId: storedRoundId,
+      direction: direction,
+      startPrice: startPrice,
+      endPrice: endPrice,
+      settled: settled,
+      won: won,
+      scoreDelta: scoreDelta,
+      expDelta: expDelta,
+      entryFeeLamports: entryFee,
+    );
+  }
+
   Future<AnchorInstruction> initializePlayerInstruction(
     String playerAddress,
   ) async {
@@ -349,6 +408,26 @@ class CandleClashProgram {
           isSigner: false,
         ),
         AccountMeta.readonly(pubKey: systemProgramId, isSigner: false),
+      ],
+    );
+  }
+
+  Future<AnchorInstruction> withdrawInstruction({
+    required String playerAddress,
+    required int lamports,
+  }) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return AnchorInstruction.forMethod(
+      programId: programId,
+      namespace: 'global',
+      method: 'withdraw',
+      arguments: ByteArray.u64(lamports),
+      accounts: [
+        AccountMeta.writeable(pubKey: player, isSigner: true),
+        AccountMeta.writeable(
+          pubKey: await playerVaultPda(playerAddress),
+          isSigner: false,
+        ),
       ],
     );
   }
@@ -564,6 +643,20 @@ class _Reader {
     _offset += 8;
     return value;
   }
+
+  int i64() {
+    final value = _data.getInt64(_offset, Endian.little);
+    _offset += 8;
+    return value;
+  }
+
+  int u8() {
+    final value = _data.getUint8(_offset);
+    _offset += 1;
+    return value;
+  }
+
+  bool readBool() => u8() != 0;
 }
 
 extension on PlayerVault {
