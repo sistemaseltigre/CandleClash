@@ -23,6 +23,7 @@ class AppSession {
   PlayerVault vault = PlayerVault.empty;
   PlayerProfile profile = PlayerProfile.empty;
   double walletSol = 0;
+  int sessionAuthorityLamports = 0;
 
   bool get isConnected => connection != null;
 
@@ -38,6 +39,12 @@ class AppSession {
     walletSol = await solana.getSolBalance(address);
     vault = await program.fetchVault(address);
     profile = await program.fetchProfile(address);
+    final authority = sessionAuthority;
+    if (authority != null) {
+      sessionAuthorityLamports = await solana.getLamportBalance(
+        authority.publicKey.toBase58(),
+      );
+    }
   }
 
   Future<void> ensureReadyForGame() async {
@@ -48,23 +55,40 @@ class AppSession {
 
     sessionAuthority ??= await program.createSessionAuthority();
     final authority = sessionAuthority!;
+    await refresh();
     if (sessionReady &&
-        vault.balanceLamports >= AppConstants.defaultEntryFeeLamports) {
+        vault.balanceLamports >= AppConstants.defaultEntryFeeLamports &&
+        sessionAuthorityLamports >= AppConstants.minSessionAuthorityLamports) {
       return;
     }
     final needsDeposit =
         vault.balanceLamports < AppConstants.defaultEntryFeeLamports;
+    final depositLamports = needsDeposit
+        ? AppConstants.defaultDepositLamports
+        : 0;
+    final anticipatedVaultLamports = vault.balanceLamports + depositLamports;
+    final maxSpendLamports = anticipatedVaultLamports
+        .clamp(
+          AppConstants.defaultEntryFeeLamports,
+          AppConstants.defaultDepositLamports,
+        )
+        .toInt();
+    final needsSessionFunding =
+        sessionAuthorityLamports < AppConstants.minSessionAuthorityLamports;
+    final sessionFundingLamports = needsSessionFunding
+        ? AppConstants.defaultSessionFundingLamports
+        : 0;
 
     await AppLogger.info(
-      'ensureReadyForGame wallet=${activeConnection.address} needsDeposit=$needsDeposit vault=${vault.balanceLamports}',
+      'ensureReadyForGame wallet=${activeConnection.address} needsDeposit=$needsDeposit vault=${vault.balanceLamports} authorityLamports=$sessionAuthorityLamports needsSessionFunding=$needsSessionFunding',
     );
 
     final tx = await program.buildSetupTransaction(
       playerAddress: activeConnection.address,
       sessionAuthority: authority.publicKey,
-      depositLamports: needsDeposit ? AppConstants.defaultDepositLamports : 0,
-      maxSpendLamports: AppConstants.defaultDepositLamports,
-      sessionFundingLamports: AppConstants.defaultSessionFundingLamports,
+      depositLamports: depositLamports,
+      maxSpendLamports: maxSpendLamports,
+      sessionFundingLamports: sessionFundingLamports,
     );
     await AppLogger.info('setup tx built bytes=${tx.length}');
 

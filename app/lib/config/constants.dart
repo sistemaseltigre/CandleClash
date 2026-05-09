@@ -8,7 +8,8 @@ class AppConstants {
   static const defaultTreasuryFeeLamports = 5000;
   static const defaultRoundDurationSeconds = 5;
   static const defaultDepositLamports = 1000000;
-  static const defaultSessionFundingLamports = 2000000;
+  static const defaultSessionFundingLamports = 10000000;
+  static const minSessionAuthorityLamports = 5000000;
 
   // Replace after `anchor deploy --provider.cluster devnet`.
   static const candleClashProgramId =

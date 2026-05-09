@@ -41,7 +41,7 @@ class _GameScreenState extends State<GameScreen> {
     );
     timer = Timer.periodic(const Duration(seconds: 2), (_) => refreshPrice());
     refreshPrice();
-    refreshPool();
+    refreshGameState();
   }
 
   @override
@@ -63,6 +63,13 @@ class _GameScreenState extends State<GameScreen> {
     setState(() => poolLamports = pool.totalPoolLamports);
   }
 
+  Future<void> refreshGameState() async {
+    await session.refresh();
+    await refreshPool();
+    if (!mounted) return;
+    setState(() => nextRoundId = session.profile.totalGames + 1);
+  }
+
   Future<void> startRound(RoundDirection direction) async {
     if (roundActive) return;
     setState(() {
@@ -72,14 +79,15 @@ class _GameScreenState extends State<GameScreen> {
       resultColor = Colors.white70;
     });
 
-    final roundId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     try {
       await session.ensureReadyForGame();
+      await refreshGameState();
       final connection = session.connection;
       final authority = session.sessionAuthority;
       if (connection == null || authority == null) {
         throw StateError('Wallet/session is not ready.');
       }
+      final roundId = session.profile.totalGames + 1;
 
       setState(() => result = 'Sending start_round...');
       final startSig = await session.program.sendStartRound(

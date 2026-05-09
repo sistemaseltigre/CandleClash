@@ -25,6 +25,26 @@ class _HomeScreenState extends State<HomeScreen> {
   bool busy = false;
   String status = 'Connect a Solana Mobile wallet to enter the arena.';
 
+  @override
+  void initState() {
+    super.initState();
+    syncFromSession();
+  }
+
+  Future<void> syncFromSession() async {
+    if (session.isConnected) await session.refresh();
+    if (!mounted) return;
+    setState(() {
+      address = session.connection?.address;
+      walletSol = session.walletSol;
+      vault = session.vault;
+      profile = session.profile;
+      if (address != null) {
+        status = 'Connected as ${WalletUtils.shortAddress(address!)}';
+      }
+    });
+  }
+
   Future<void> connect() async {
     setState(() {
       busy = true;
@@ -201,42 +221,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(height: 14),
-            ClashPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'WALLET',
-                    style: TextStyle(color: Colors.white70, letterSpacing: 1.2),
-                  ),
-                  const SizedBox(height: 10),
-                  Text('SOL balance: ${walletSol.toStringAsFixed(4)}'),
-                  Text('Internal balance: ${_sol(vault.balanceLamports)} SOL'),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: connected && !busy ? setupGame : null,
-                          child: const Text('DEPOSIT 0.001 + SESSION'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed:
-                              connected && !busy && vault.balanceLamports > 0
-                              ? withdrawAll
-                              : null,
-                          child: const Text('WITHDRAW'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(status, style: const TextStyle(color: Colors.white70)),
-                ],
-              ),
+            Text(
+              status,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
             ),
           ],
         ),
@@ -244,54 +232,6 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: const ClashBottomNav(current: 'play'),
     );
   }
-
-  Future<void> setupGame() async {
-    setState(() {
-      busy = true;
-      status = 'Opening wallet to deposit and start session...';
-    });
-    try {
-      await session.ensureReadyForGame();
-      setState(() {
-        walletSol = session.walletSol;
-        vault = session.vault;
-        profile = session.profile;
-        status = 'Game balance ready: ${_sol(vault.balanceLamports)} SOL';
-      });
-    } catch (error, stack) {
-      await AppLogger.error('setupGame failed', error, stack);
-      setState(() => status = '$error');
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> withdrawAll() async {
-    setState(() {
-      busy = true;
-      status = 'Opening wallet to withdraw internal balance...';
-    });
-    try {
-      final sig = await session.withdraw(vault.balanceLamports);
-      setState(() {
-        walletSol = session.walletSol;
-        vault = session.vault;
-        profile = session.profile;
-        status = 'Withdraw sent ${_short(sig)}';
-      });
-    } catch (error, stack) {
-      await AppLogger.error('home withdraw failed', error, stack);
-      setState(() => status = '$error');
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  String _sol(int lamports) =>
-      (lamports / AppConstants.lamportsPerSol).toStringAsFixed(4);
-
-  String _short(String value) =>
-      value.length < 14 ? value : '${value.substring(0, 6)}...';
 }
 
 class _BalancePill extends StatelessWidget {

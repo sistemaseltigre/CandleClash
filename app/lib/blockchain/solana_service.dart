@@ -9,7 +9,11 @@ class SolanaService {
   final RpcClient rpc;
 
   Future<double> getSolBalance(String address) async {
+    return getLamportBalance(address).then((value) => value / lamportsPerSol);
+  }
+
+  Future<int> getLamportBalance(String address) async {
     final result = await rpc.getBalance(address);
-    return result.value / lamportsPerSol;
+    return result.value;
   }
 }

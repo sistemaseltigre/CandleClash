@@ -28,6 +28,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final fetchedPool = await program.fetchDailyPool();
     final fetchedPlayers = await program.fetchLeaderboard();
     fetchedPlayers.sort((a, b) => b.dailyScore.compareTo(a.dailyScore));
+    if (!mounted) return;
     setState(() {
       pool = fetchedPool;
       players = fetchedPlayers;
@@ -39,57 +40,64 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final currentPool = pool;
     return Scaffold(
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Row(
-              children: [
-                const ClashLogo(height: 58),
-                const Spacer(),
-                IconButton(onPressed: load, icon: const Icon(Icons.refresh)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ClashPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: RefreshIndicator(
+          onRefresh: load,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
                 children: [
-                  const Text(
-                    'LEADERBOARD',
-                    style: TextStyle(
-                      color: clashGreen,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      NeonStat(
-                        icon: Icons.calendar_today,
-                        label: 'UTC Day',
-                        value: '${program.currentUtcDayId()}',
-                        color: clashGreen,
-                      ),
-                      const SizedBox(width: 10),
-                      NeonStat(
-                        icon: Icons.emoji_events,
-                        label: 'Pool',
-                        value: _sol(currentPool?.totalPoolLamports ?? 0),
-                        color: clashYellow,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (players.isEmpty)
-                    const _EmptyBoard()
-                  else
-                    for (var i = 0; i < players.length; i++)
-                      _LeaderboardRow(rank: i + 1, player: players[i]),
+                  const ClashLogo(height: 58),
+                  const Spacer(),
+                  IconButton(onPressed: load, icon: const Icon(Icons.refresh)),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              ClashPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'LEADERBOARD',
+                      style: TextStyle(
+                        color: clashGreen,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        NeonStat(
+                          icon: Icons.calendar_today,
+                          label: 'Today UTC',
+                          value: _utcDateLabel(),
+                          color: clashGreen,
+                        ),
+                        const SizedBox(width: 10),
+                        NeonStat(
+                          icon: Icons.emoji_events,
+                          label: 'Pool',
+                          value: _sol(currentPool?.totalPoolLamports ?? 0),
+                          color: clashYellow,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (players.isEmpty)
+                      const _EmptyBoard()
+                    else
+                      for (var i = 0; i < players.length; i++)
+                        _LeaderboardRow(
+                          rank: i + 1,
+                          player: players[i],
+                          poolLamports: currentPool?.totalPoolLamports ?? 0,
+                        ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: const ClashBottomNav(current: 'leaderboard'),
@@ -97,7 +105,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   String _sol(int lamports) =>
-      (lamports / AppConstants.lamportsPerSol).toStringAsFixed(3);
+      (lamports / AppConstants.lamportsPerSol).toStringAsFixed(6);
+
+  String _utcDateLabel() {
+    final now = DateTime.now().toUtc();
+    return '${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}';
+  }
 }
 
 class _EmptyBoard extends StatelessWidget {
@@ -114,7 +127,7 @@ class _EmptyBoard extends StatelessWidget {
         border: Border.all(color: clashBorder),
       ),
       child: const Text(
-        'No DailyPlayer accounts loaded yet. The next step is wiring account decoding through the generated Anchor IDL.',
+        'No onchain plays for the current UTC day yet. Play a settled round and refresh.',
         style: TextStyle(color: Colors.white70),
       ),
     );
@@ -122,10 +135,15 @@ class _EmptyBoard extends StatelessWidget {
 }
 
 class _LeaderboardRow extends StatelessWidget {
-  const _LeaderboardRow({required this.rank, required this.player});
+  const _LeaderboardRow({
+    required this.rank,
+    required this.player,
+    required this.poolLamports,
+  });
 
   final int rank;
   final DailyPlayer player;
+  final int poolLamports;
 
   @override
   Widget build(BuildContext context) {
@@ -148,19 +166,36 @@ class _LeaderboardRow extends StatelessWidget {
             child: Text('#$rank', style: const TextStyle(color: clashYellow)),
           ),
           Expanded(child: Text(_short(player.player))),
-          Text(
-            '${player.dailyScore}',
-            style: const TextStyle(
-              color: clashGreen,
-              fontWeight: FontWeight.w800,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${player.dailyScore} pts',
+                style: const TextStyle(
+                  color: clashGreen,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                '${player.dailyWins}W/${player.dailyLosses}L  ${_estimatedReward()}',
+                style: const TextStyle(color: Colors.white54, fontSize: 11),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
+  String _estimatedReward() {
+    if (poolLamports == 0 || rank > _rewardBps.length) return '-- SOL';
+    final lamports = poolLamports * _rewardBps[rank - 1] ~/ 10000;
+    return '${(lamports / AppConstants.lamportsPerSol).toStringAsFixed(6)} SOL';
+  }
+
   String _short(String value) => value.length < 8
       ? value
       : '${value.substring(0, 4)}...${value.substring(value.length - 4)}';
 }
+
+const _rewardBps = [3000, 2000, 1500, 1000, 700, 500, 400, 350, 300, 250];

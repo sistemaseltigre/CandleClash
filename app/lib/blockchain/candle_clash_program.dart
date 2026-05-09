@@ -182,8 +182,30 @@ class CandleClashProgram {
   }
 
   Future<List<DailyPlayer>> fetchLeaderboard() async {
-    // TODO: getProgramAccounts filtered by DailyPlayer discriminator/day_id.
-    return const [];
+    final dayId = currentUtcDayId();
+    try {
+      final accounts = await rpc.getProgramAccounts(
+        programId.toBase58(),
+        encoding: Encoding.base64,
+        commitment: Commitment.confirmed,
+        filters: [
+          const ProgramDataFilter.dataSize(129),
+          ProgramDataFilter.memcmp(offset: 0, bytes: _dailyPlayerDiscriminator),
+          ProgramDataFilter.memcmp(offset: 8, bytes: _u64List(dayId)),
+        ],
+      );
+      final players = <DailyPlayer>[];
+      for (final account in accounts) {
+        final data = account.account.data;
+        if (data is! BinaryAccountData || data.data.length < 129) continue;
+        players.add(_decodeDailyPlayer(data.data));
+      }
+      players.sort((a, b) => b.dailyScore.compareTo(a.dailyScore));
+      return players.take(50).toList(growable: false);
+    } catch (error, stack) {
+      await AppLogger.error('fetch leaderboard failed', error, stack);
+      return const [];
+    }
   }
 
   Future<Uint8List> buildInitializePlayerTransaction(
@@ -277,6 +299,24 @@ class CandleClashProgram {
       ),
     ];
     return _walletTransaction(payer: player, instructions: instructions);
+  }
+
+  Future<Uint8List> buildFundSessionAuthorityTransaction({
+    required String playerAddress,
+    required Ed25519HDPublicKey sessionAuthority,
+    required int lamports,
+  }) async {
+    final player = Ed25519HDPublicKey.fromBase58(playerAddress);
+    return _walletTransaction(
+      payer: player,
+      instructions: [
+        SystemInstruction.transfer(
+          fundingAccount: player,
+          recipientAccount: sessionAuthority,
+          lamports: lamports,
+        ),
+      ],
+    );
   }
 
   Future<Uint8List> buildStartRoundTransaction({
@@ -625,7 +665,36 @@ class CandleClashProgram {
   }
 
   List<int> _u64List(int value) => ByteArray.u64(value).toList(growable: false);
+
+  DailyPlayer _decodeDailyPlayer(List<int> data) {
+    final reader = _Reader(data);
+    reader.skip(8);
+    final dayId = reader.u64();
+    final player = Ed25519HDPublicKey(reader.bytes(32)).toBase58();
+    final dailyScore = reader.u64();
+    final dailyGames = reader.u64();
+    final dailyWins = reader.u64();
+    final dailyLosses = reader.u64();
+    final dailyLong = reader.u64();
+    final dailyShort = reader.u64();
+    final dailySpentLamports = reader.u64();
+    final dailyPoolContributedLamports = reader.u64();
+    return DailyPlayer(
+      dayId: dayId,
+      player: player,
+      dailyScore: dailyScore,
+      dailyGames: dailyGames,
+      dailyWins: dailyWins,
+      dailyLosses: dailyLosses,
+      dailyLong: dailyLong,
+      dailyShort: dailyShort,
+      dailySpentLamports: dailySpentLamports,
+      dailyPoolContributedLamports: dailyPoolContributedLamports,
+    );
+  }
 }
+
+const _dailyPlayerDiscriminator = [2, 123, 72, 37, 246, 127, 78, 33];
 
 class _Reader {
   _Reader(List<int> data)
@@ -657,6 +726,12 @@ class _Reader {
   }
 
   bool readBool() => u8() != 0;
+
+  List<int> bytes(int length) {
+    final value = _data.buffer.asUint8List(_offset, length).toList();
+    _offset += length;
+    return value;
+  }
 }
 
 extension on PlayerVault {

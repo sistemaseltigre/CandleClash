@@ -118,6 +118,13 @@ class _WalletScreenState extends State<WalletScreen> {
                             'Wallet: $walletSol SOL',
                             style: const TextStyle(color: Colors.white54),
                           ),
+                          if (session.sessionAuthority != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Session rent: ${_sol(session.sessionAuthorityLamports)} SOL',
+                              style: const TextStyle(color: Colors.white38),
+                            ),
+                          ],
                         ],
                       ),
                     ),
