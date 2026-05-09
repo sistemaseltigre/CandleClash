@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../blockchain/titan_price_service.dart';
 import '../config/constants.dart';
@@ -28,6 +29,7 @@ class _GameScreenState extends State<GameScreen> {
   String result =
       'Choose UP or DOWN. First play will open wallet to fund the session.';
   Color resultColor = Colors.white70;
+  GameRound? lastRound;
   bool roundActive = false;
   int nextRoundId = 10294;
   double progress = 1;
@@ -65,7 +67,7 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> refreshGameState() async {
     await session.refresh();
-    await refreshPool();
+    unawaited(refreshPool());
     if (!mounted) return;
     setState(() => nextRoundId = session.profile.totalGames + 1);
   }
@@ -77,11 +79,11 @@ class _GameScreenState extends State<GameScreen> {
       progress = 1;
       result = 'Preparing session...';
       resultColor = Colors.white70;
+      lastRound = null;
     });
 
     try {
       await session.ensureReadyForGame();
-      await refreshGameState();
       final connection = session.connection;
       final authority = session.sessionAuthority;
       if (connection == null || authority == null) {
@@ -129,13 +131,17 @@ class _GameScreenState extends State<GameScreen> {
             roundId: roundId,
           );
           await AppLogger.info('settle_round sig=$settleSig round=$roundId');
-          await Future<void>.delayed(const Duration(seconds: 1));
-          await session.refresh();
-          await refreshPool();
           final round = await session.program.fetchRound(
             playerAddress: connection.address,
             roundId: roundId,
           );
+          unawaited(
+            session.refresh().then((_) {
+              if (!mounted) return;
+              setState(() => nextRoundId = session.profile.totalGames + 1);
+            }),
+          );
+          unawaited(refreshPool());
           if (!mounted) return;
           setState(() {
             roundActive = false;
@@ -145,11 +151,13 @@ class _GameScreenState extends State<GameScreen> {
               resultColor = Colors.white70;
             } else {
               resultColor = round.won ? clashGreen : clashRed;
-              result =
-                  '${round.won ? 'YOU WON' : 'YOU LOST'}  ${round.scoreDelta} pts  +${round.expDelta} EXP\n'
-                  'Start ${round.startPrice.toStringAsFixed(4)} -> End ${round.endPrice.toStringAsFixed(4)} | '
-                  'Vault ${_sol(session.vault.balanceLamports)} SOL | '
-                  'Level ${session.profile.level} / EXP ${session.profile.exp}';
+              lastRound = round;
+              result = round.won ? 'WIN' : 'LOSS';
+              if (round.won) {
+                HapticFeedback.heavyImpact();
+              } else {
+                HapticFeedback.mediumImpact();
+              }
             }
           });
         } catch (error, stack) {
@@ -281,7 +289,10 @@ class _GameScreenState extends State<GameScreen> {
                           onShort: () => startRound(RoundDirection.short),
                         ),
                         const SizedBox(height: 14),
-                        _InfoStrip(result: result, color: resultColor),
+                        if (lastRound == null)
+                          _InfoStrip(result: result, color: resultColor)
+                        else
+                          _ResultBanner(round: lastRound!),
                       ],
                     ),
                   ),
@@ -363,6 +374,96 @@ class _InfoStrip extends StatelessWidget {
         result,
         textAlign: TextAlign.center,
         style: TextStyle(color: color, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+}
+
+class _ResultBanner extends StatelessWidget {
+  const _ResultBanner({required this.round});
+
+  final GameRound round;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = round.won ? clashGreen : clashRed;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.75), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.20),
+            blurRadius: 24,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            round.won ? 'WIN' : 'LOSS',
+            style: TextStyle(
+              color: color,
+              fontSize: 34,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _ResultPill(label: 'Points', value: '+${round.scoreDelta}'),
+              const SizedBox(width: 8),
+              _ResultPill(label: 'EXP', value: '+${round.expDelta}'),
+              const SizedBox(width: 8),
+              _ResultPill(
+                label: 'Move',
+                value:
+                    '${round.startPrice.toStringAsFixed(2)} -> ${round.endPrice.toStringAsFixed(2)}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultPill extends StatelessWidget {
+  const _ResultPill({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xff071018),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: clashBorder),
+        ),
+        child: Column(
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: const TextStyle(color: Colors.white54, fontSize: 9),
+            ),
+            const SizedBox(height: 2),
+            FittedBox(
+              child: Text(
+                value,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

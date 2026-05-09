@@ -36,15 +36,32 @@ class AppSession {
   Future<void> refresh() async {
     final address = connection?.address;
     if (address == null) return;
-    walletSol = await solana.getSolBalance(address);
-    vault = await program.fetchVault(address);
-    profile = await program.fetchProfile(address);
     final authority = sessionAuthority;
-    if (authority != null) {
-      sessionAuthorityLamports = await solana.getLamportBalance(
-        authority.publicKey.toBase58(),
-      );
+    final results = await Future.wait<Object?>([
+      _safe(() => solana.getSolBalance(address)),
+      _safe(() => program.fetchVault(address)),
+      _safe(() => program.fetchProfile(address)),
+      if (authority != null)
+        _safe(() => solana.getLamportBalance(authority.publicKey.toBase58())),
+    ]);
+    if (results[0] case final double value) walletSol = value;
+    if (results[1] case final PlayerVault value) vault = value;
+    if (results[2] case final PlayerProfile value) profile = value;
+    if (authority != null && results.length > 3) {
+      if (results[3] case final int value) sessionAuthorityLamports = value;
     }
+  }
+
+  Future<void> refreshGameFunding() async {
+    final address = connection?.address;
+    final authority = sessionAuthority;
+    if (address == null || authority == null) return;
+    final results = await Future.wait<Object?>([
+      _safe(() => program.fetchVault(address)),
+      _safe(() => solana.getLamportBalance(authority.publicKey.toBase58())),
+    ]);
+    if (results[0] case final PlayerVault value) vault = value;
+    if (results[1] case final int value) sessionAuthorityLamports = value;
   }
 
   Future<void> ensureReadyForGame() async {
@@ -55,7 +72,13 @@ class AppSession {
 
     sessionAuthority ??= await program.createSessionAuthority();
     final authority = sessionAuthority!;
-    await refresh();
+    if (sessionReady &&
+        vault.balanceLamports >= AppConstants.defaultEntryFeeLamports &&
+        sessionAuthorityLamports >= AppConstants.minSessionAuthorityLamports) {
+      return;
+    }
+
+    await refreshGameFunding();
     if (sessionReady &&
         vault.balanceLamports >= AppConstants.defaultEntryFeeLamports &&
         sessionAuthorityLamports >= AppConstants.minSessionAuthorityLamports) {
@@ -100,7 +123,7 @@ class AppSession {
       throw StateError('Wallet did not return a setup signature.');
     }
     await AppLogger.info('setup tx sent signature=$signature');
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     await refresh();
     sessionReady = true;
   }
@@ -124,7 +147,7 @@ class AppSession {
     await AppLogger.info(
       'deposit sent signature=$signature lamports=$lamports',
     );
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     await refresh();
     return signature;
   }
@@ -150,8 +173,17 @@ class AppSession {
       throw StateError('Wallet did not return a withdraw signature.');
     }
     await AppLogger.info('withdraw sent signature=$signature lamports=$amount');
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     await refresh();
     return signature;
+  }
+
+  Future<T?> _safe<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } catch (error, stack) {
+      await AppLogger.error('session refresh field failed', error, stack);
+      return null;
+    }
   }
 }

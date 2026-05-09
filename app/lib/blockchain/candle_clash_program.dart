@@ -24,6 +24,7 @@ class CandleClashProgram {
     AppConstants.candleClashProgramId,
   );
   final Ed25519HDPublicKey systemProgramId = SystemProgram.id;
+  static const _accountReadTimeout = Duration(seconds: 4);
 
   Future<Ed25519HDPublicKey> playerProfilePda(String playerAddress) {
     return Ed25519HDPublicKey.findProgramAddress(
@@ -647,11 +648,13 @@ class CandleClashProgram {
 
   Future<List<int>?> _accountBytes(Ed25519HDPublicKey pubkey) async {
     try {
-      final account = await rpc.getAccountInfo(
-        pubkey.toBase58(),
-        encoding: Encoding.base64,
-        commitment: Commitment.confirmed,
-      );
+      final account = await rpc
+          .getAccountInfo(
+            pubkey.toBase58(),
+            encoding: Encoding.base64,
+            commitment: Commitment.confirmed,
+          )
+          .timeout(_accountReadTimeout);
       final data = account.value?.data;
       if (data is BinaryAccountData) return data.data;
     } catch (error, stack) {
