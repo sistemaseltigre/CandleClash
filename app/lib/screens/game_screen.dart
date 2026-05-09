@@ -297,7 +297,7 @@ class _GameScreenState extends State<GameScreen> {
                       const NeonStat(
                         icon: Icons.verified_user,
                         label: 'Onchain',
-                        value: 'Pyth',
+                        value: 'Oracle',
                         color: clashGreen,
                       ),
                     ],
